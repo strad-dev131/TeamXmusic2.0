@@ -16,7 +16,6 @@
 
 ## 📚 Table of Contents
 
-- [🛠 YouTube Fix](#-youtube-fix)
 - [🌟 Features](#-features)
 - [🚀 Deploy on Heroku](#-deploy-on-heroku)
 - [⚙️ Quick Setup](#️-quick-setup)
@@ -28,20 +27,6 @@
 
 ---
 
-## 🛠 YouTube Fix
-
-Due to YouTube blocking VPS IPs, we’ve implemented a workaround:
-
-1. **Join the [Support Group](https://t.me/TeamsXchat)** and type `#script` to get the script.
-2. **Run the script** on your Windows desktop via VS Code (or similar) to generate cookies.
-3. **Fork this repository**.
-4. **Paste the cookies** into the `cookies/` folder.
-5. **Deploy** the bot as shown in the instructions below.
-
-This bypass ensures smooth music playback even with YouTube restrictions.
-
----
-
 ## 🌟 Features
 
 - 🎧 **Multi-Source Streaming** – Play from YouTube, Telegram, and more.
@@ -49,7 +34,8 @@ This bypass ensures smooth music playback even with YouTube restrictions.
 - 🔁 **Playback Controls** – Skip, pause, resume, repeat, and shuffle.
 - 📢 **High-Quality Audio** – Crystal-clear sound output.
 - ⚙️ **Custom Settings** – Equalizer, volume control, and more.
-
+- 🍪 **Cookie-free & Error-free Playback**
+- ✅ **API Key Based Access**
 ---
 
 ## 🚀 Deploy on Heroku
@@ -81,7 +67,7 @@ Click the button below to deploy the bot on Heroku instantly:
    ```
 5. **Clone the Repository**
    ```bash
-   git clone https://github.com/strad-dev131/TeamXmusic && cd TeamXmusic
+   git clone https://github.com/strad-dev131/TeamXmusic2.0 && cd TeamXmusic2.0
    ```
 6. **Install Requirements**
    ```bash
