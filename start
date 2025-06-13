@@ -1,4 +1,4 @@
-echo "Fucking Junk"
+echo "Team X dev"
 rm -rf __p*
 rm -f *.session
 sleep 1 
