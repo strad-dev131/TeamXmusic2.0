@@ -67,11 +67,11 @@ async def braodcast_message(client, message:Message, _):
 for i in chats:
     to += 1
     try:
-        m = (
-            await app.forward_messages(i, y, x)
-            if message.reply_to_message
-            else await app.send_message(i, text=query)
-        )
+        if message.reply_to_message:
+            m = await app.forward_messages(i, y, x)
+        else:
+            m = await app.send_message(i, text=query)
+
         if "-pin" in message.text:
             try:
                 await m.pin(disable_notification=True)
@@ -86,6 +86,7 @@ for i in chats:
                 pass
         sent += 1
         await asyncio.sleep(0.2)
+
     except FloodWait as fw:
         floodWaitError += 1
         flood_time = int(fw.value)
@@ -94,14 +95,17 @@ for i in chats:
             continue
         await asyncio.sleep(flood_time)
         floodWaitsleep += 1
+
     except (ChannelInvalid, PeerIdInvalid):
         LOGGER(__name__).warning(f"Invalid chat skipped: {i}")
         err += 1
         continue
+
     except Exception as e:
         LOGGER(__name__).error(f"Unhandled error in broadcast: {e}")
         err += 1
         continue
+
 
         try:
             await message.reply_text(_["broad_3"].format(sent, pin))
