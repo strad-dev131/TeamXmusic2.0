@@ -63,6 +63,7 @@ async def braodcast_message(client, message:Message, _):
         schats = await get_served_chats()
         for chat in schats:
             chats.append(int(chat["chat_id"]))
+
 for i in chats:
     to += 1
     try:
