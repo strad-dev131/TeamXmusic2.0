@@ -1,20 +1,21 @@
+
 import asyncio
 
 from pyrogram import filters
 from pyrogram.enums import ChatMembersFilter
 from pyrogram.errors import FloodWait
 
-from TeamX import app
-from TeamX.misc import SUDOERS
-from TeamX.utils.database import (
+from TeamXmusic import app
+from TeamXmusic.misc import SUDOERS
+from TeamXmusic.utils.database import (
     get_active_chats,
     get_authuser_names,
     get_client,
     get_served_chats,
     get_served_users,
 )
-from TeamX.utils.decorators.language import language
-from TeamX.utils.formatters import alpha_to_int
+from TeamXmusic.utils.decorators.language import language
+from TeamXmusic.utils.formatters import alpha_to_int
 from config import adminlist
 
 IS_BROADCASTING = False
@@ -178,7 +179,7 @@ async def braodcast_message(client, message, _):
     if "-assistant" in message.text:
         aw = await message.reply_text(_["broad_5"])
         text = _["broad_6"]
-        from TeamX.core.userbot import assistants
+        from TeamXmusic.core.userbot import assistants
 
         for num in assistants:
             sent = 0
