@@ -4,6 +4,7 @@ from pyrogram import filters
 from pyrogram.types import Message
 from pyrogram.enums import ChatMembersFilter
 from pyrogram.errors import FloodWait
+from pyrogram.errors import ChannelInvalid, PeerIdInvalid
 
 from TeamXmusic import app
 from TeamXmusic.misc import SUDOERS
@@ -62,40 +63,45 @@ async def braodcast_message(client, message:Message, _):
         schats = await get_served_chats()
         for chat in schats:
             chats.append(int(chat["chat_id"]))
-        for i in chats:
-            to += 1
+for i in chats:
+    to += 1
+    try:
+        m = (
+            await app.forward_messages(i, y, x)
+            if message.reply_to_message
+            else await app.send_message(i, text=query)
+        )
+        if "-pin" in message.text:
             try:
-                m = (
-                    await app.forward_messages(i, y, x)
-                    if message.reply_to_message
-                    else await app.send_message(i, text=query)
-                )
-                if "-pin" in message.text:
-                    try:
-                        await m.pin(disable_notification=True)
-                        pin += 1
-                    except:
-                        continue
-                elif "-pinloud" in message.text:
-                    try:
-                        await m.pin(disable_notification=False)
-                        pin += 1
-                    except:
-                        continue
-                sent += 1
-                await asyncio.sleep(0.2)
-            except FloodWait as fw:
-                floodWaitError += 1
-                flood_time = int(fw.value)
-                if flood_time > 200:
-                    floodwaitskipped += 1
-                    continue
-                await asyncio.sleep(flood_time)
-                floodWaitsleep += 1
-            except Exception as e:
-                LOGGER(__name__).info(e)
-                err += 1
-                continue
+                await m.pin(disable_notification=True)
+                pin += 1
+            except:
+                pass
+        elif "-pinloud" in message.text:
+            try:
+                await m.pin(disable_notification=False)
+                pin += 1
+            except:
+                pass
+        sent += 1
+        await asyncio.sleep(0.2)
+    except FloodWait as fw:
+        floodWaitError += 1
+        flood_time = int(fw.value)
+        if flood_time > 200:
+            floodwaitskipped += 1
+            continue
+        await asyncio.sleep(flood_time)
+        floodWaitsleep += 1
+    except (ChannelInvalid, PeerIdInvalid):
+        LOGGER(__name__).warning(f"Invalid chat skipped: {i}")
+        err += 1
+        continue
+    except Exception as e:
+        LOGGER(__name__).error(f"Unhandled error in broadcast: {e}")
+        err += 1
+        continue
+
         try:
             await message.reply_text(_["broad_3"].format(sent, pin))
             await app.send_message(message.chat.id,f">> Broadcasted message to {sent}. \n Total chats: {to} \n Floodwait: {floodWaitError} \n FloodwaitSkipped: {floodwaitskipped} \n Floodwaitsleep: {floodWaitsleep} \n Other Errors: {err}")
