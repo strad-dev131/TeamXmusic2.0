@@ -4,7 +4,9 @@ from pyrogram.types import Message
 from pyrogram.enums import ChatMembersFilter
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 
-from TeamXmusic import app, LOGGER, db
+from TeamXmusic import app, LOGGER
+from TeamXmusic.utils.database import db
+
 from TeamXmusic.misc import SUDOERS
 from TeamXmusic.utils.database import (
     get_active_chats,
