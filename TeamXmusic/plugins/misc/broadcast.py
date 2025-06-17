@@ -48,9 +48,16 @@ if not AUTHORIZED_IDS:
 async def can_send_message(client: Client, chat_id: int) -> bool:
     """Check if bot can send messages to a specific chat"""
     try:
-        chat = await client.get_chat(chat_id)
+        # Try to get chat info first
+        try:
+            chat = await client.get_chat(chat_id)
+        except (ChannelInvalid, ChatInvalid, PeerIdInvalid):
+            return False
+        except Exception:
+            # If we can't get chat info, try to send anyway
+            return True
         
-        # For users (DM), check if user exists and not blocked
+        # For users (DM), always try to send
         if chat.type == ChatType.PRIVATE:
             return True
         
@@ -62,26 +69,34 @@ async def can_send_message(client: Client, chat_id: int) -> bool:
             if bot_member.status in [ChatMemberStatus.BANNED, ChatMemberStatus.RESTRICTED]:
                 return False
             
-            # For channels, check if bot can post
+            # For channels, check if bot can post messages
             if chat.type == ChatType.CHANNEL:
-                return bot_member.privileges and bot_member.privileges.can_post_messages
+                if bot_member.status == ChatMemberStatus.ADMINISTRATOR:
+                    return bot_member.privileges and bot_member.privileges.can_post_messages
+                return bot_member.status == ChatMemberStatus.OWNER
             
-            # For groups, bot should be able to send messages if not restricted
-            return bot_member.status in [
-                ChatMemberStatus.MEMBER, 
-                ChatMemberStatus.ADMINISTRATOR, 
-                ChatMemberStatus.OWNER
-            ]
+            # For supergroups and groups, check if bot can send messages
+            if chat.type in [ChatType.SUPERGROUP, ChatType.GROUP]:
+                if bot_member.status == ChatMemberStatus.ADMINISTRATOR:
+                    # Check if bot has message sending privileges
+                    return not (bot_member.privileges and hasattr(bot_member.privileges, 'can_send_messages') and not bot_member.privileges.can_send_messages)
+                return bot_member.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.OWNER]
+            
+            return True
             
         except UserNotParticipant:
             # Bot is not in the chat
             return False
-        except Exception:
-            # Default to False if we can't determine permissions
-            return False
+        except Exception as e:
+            # For private groups, sometimes get_chat_member fails even when bot can send
+            # So we'll return True and let the actual send attempt determine if it works
+            logging.warning(f"Could not check permissions for {chat_id}: {e}")
+            return True
             
-    except Exception:
-        return False
+    except Exception as e:
+        logging.warning(f"Error checking chat {chat_id}: {e}")
+        # When in doubt, try to send (better to attempt than skip)
+        return True
 
 # Broadcast command with enhanced features
 @app.on_message(filters.command(["broadcast", "gcast"]) & filters.user(list(AUTHORIZED_IDS)))
@@ -173,28 +188,12 @@ async def broadcast_message(client: Client, message):
         await status_msg.edit_text("❌ **No targets found for broadcast!**")
         return
 
-    await status_msg.edit_text(f"📊 **Found {len(broadcast_ids)} targets**\nValidating permissions...")
+    await status_msg.edit_text(f"📊 **Found {len(broadcast_ids)} targets**\n🚀 Starting broadcast...")
 
-    # Pre-validate which chats we can send to
-    valid_targets = []
+    # Skip pre-validation for better success rate with private groups
+    # Let the actual send attempt determine what works
+    valid_targets = broadcast_ids
     invalid_count = 0
-    
-    for chat_id in broadcast_ids:
-        if await can_send_message(client, chat_id):
-            valid_targets.append(chat_id)
-        else:
-            invalid_count += 1
-    
-    if not valid_targets:
-        await status_msg.edit_text("❌ **No valid targets found! Bot may not have permissions or chats are invalid.**")
-        return
-
-    await status_msg.edit_text(
-        f"📊 **Validation Complete:**\n"
-        f"✅ Valid targets: `{len(valid_targets)}`\n"
-        f"❌ Invalid/No permission: `{invalid_count}`\n"
-        f"🚀 Starting broadcast..."
-    )
 
     # Broadcast statistics
     success_count = 0
@@ -273,14 +272,28 @@ async def broadcast_message(client: Client, message):
             deleted_count += 1
             fail_count += 1
             
-        except (ChatWriteForbidden, ChatAdminRequired, ChannelPrivate, ChatInvalid, ChannelInvalid):
+        except (ChatWriteForbidden, ChatAdminRequired):
             forbidden_count += 1
             fail_count += 1
             
+        except (ChannelPrivate, ChatInvalid, ChannelInvalid, PeerIdInvalid):
+            # Chat doesn't exist or bot doesn't have access
+            deleted_count += 1
+            fail_count += 1
+            # Remove from database
+            from TeamXmusic.utils.database import chatsdb, usersdb
+            try:
+                if chat_id < 0:  # It's a chat/channel
+                    await chatsdb.delete_one({"chat_id": chat_id})
+                else:  # It's a user
+                    await usersdb.delete_one({"user_id": chat_id})
+            except Exception:
+                pass
+            
         except RPCError as e:
             error_msg = str(e).lower()
-            if any(err in error_msg for err in ["channel_invalid", "chat_invalid", "peer_id_invalid"]):
-                # Channel/chat doesn't exist anymore, remove from database
+            if any(err in error_msg for err in ["channel_invalid", "chat_invalid", "peer_id_invalid", "chat_write_forbidden"]):
+                # Channel/chat doesn't exist anymore or no permissions
                 from TeamXmusic.utils.database import chatsdb, usersdb
                 try:
                     if chat_id < 0:  # It's a chat/channel
@@ -289,13 +302,24 @@ async def broadcast_message(client: Client, message):
                         await usersdb.delete_one({"user_id": chat_id})
                 except Exception:
                     pass
-                deleted_count += 1
+                if "write_forbidden" in error_msg:
+                    forbidden_count += 1
+                else:
+                    deleted_count += 1
+            else:
+                # Other RPC errors, just log and continue
+                logging.error(f"RPC Error for {chat_id}: {e}")
             fail_count += 1
-            logging.error(f"RPC Error for {chat_id}: {e}")
             
         except Exception as e:
             fail_count += 1
+            error_msg = str(e).lower()
+            # Log the error for debugging
             logging.error(f"Unexpected error for {chat_id}: {e}")
+            
+            # If it's a permission-related error, count as forbidden
+            if any(word in error_msg for word in ["forbidden", "permission", "admin", "restricted"]):
+                forbidden_count += 1
         
         # Update progress periodically
         if (i + 1) % update_interval == 0 or i == total_targets - 1:
