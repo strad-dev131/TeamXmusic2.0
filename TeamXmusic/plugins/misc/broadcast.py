@@ -1,4 +1,3 @@
-
 import asyncio
 import random
 import logging
@@ -9,22 +8,17 @@ from pyrogram.errors import (
     ChatWriteForbidden, ChatAdminRequired, ChannelPrivate, UserDeactivated,
     ChatInvalid, RPCError, ChannelInvalid, UserNotParticipant
 )
-from pyrogram.enums import ChatType, ChatMemberStatus
+from pyrogram.enums import ChatType
 
 from TeamXmusic import app
-from TeamXmusic.utils.database import get_served_chats, get_served_users
+from TeamXmusic.utils.database import get_served_users
 
 # Get authorized users from config
 AUTHORIZED_IDS = set()
 try:
-    from config import OWNER_ID
+    from config import OWNER_ID, SUDO_USERS, LOGGER_ID
     if OWNER_ID:
         AUTHORIZED_IDS.add(int(OWNER_ID))
-except Exception:
-    pass
-
-try:
-    from config import SUDO_USERS
     if SUDO_USERS:
         if isinstance(SUDO_USERS, (list, tuple, set)):
             for uid in SUDO_USERS:
@@ -44,65 +38,11 @@ except Exception:
 if not AUTHORIZED_IDS:
     logging.warning("No authorized user IDs specified for broadcasts.")
 
-# Helper function to check if bot can send messages to a chat
-async def can_send_message(client: Client, chat_id: int) -> bool:
-    """Check if bot can send messages to a specific chat"""
-    try:
-        # Try to get chat info first
-        try:
-            chat = await client.get_chat(chat_id)
-        except (ChannelInvalid, ChatInvalid, PeerIdInvalid):
-            return False
-        except Exception:
-            # If we can't get chat info, try to send anyway
-            return True
-        
-        # For users (DM), always try to send
-        if chat.type == ChatType.PRIVATE:
-            return True
-        
-        # For groups and channels, check bot permissions
-        try:
-            bot_member = await client.get_chat_member(chat_id, "me")
-            
-            # Check if bot is banned or restricted
-            if bot_member.status in [ChatMemberStatus.BANNED, ChatMemberStatus.RESTRICTED]:
-                return False
-            
-            # For channels, check if bot can post messages
-            if chat.type == ChatType.CHANNEL:
-                if bot_member.status == ChatMemberStatus.ADMINISTRATOR:
-                    return bot_member.privileges and bot_member.privileges.can_post_messages
-                return bot_member.status == ChatMemberStatus.OWNER
-            
-            # For supergroups and groups, check if bot can send messages
-            if chat.type in [ChatType.SUPERGROUP, ChatType.GROUP]:
-                if bot_member.status == ChatMemberStatus.ADMINISTRATOR:
-                    # Check if bot has message sending privileges
-                    return not (bot_member.privileges and hasattr(bot_member.privileges, 'can_send_messages') and not bot_member.privileges.can_send_messages)
-                return bot_member.status in [ChatMemberStatus.MEMBER, ChatMemberStatus.OWNER]
-            
-            return True
-            
-        except UserNotParticipant:
-            # Bot is not in the chat
-            return False
-        except Exception as e:
-            # For private groups, sometimes get_chat_member fails even when bot can send
-            # So we'll return True and let the actual send attempt determine if it works
-            logging.warning(f"Could not check permissions for {chat_id}: {e}")
-            return True
-            
-    except Exception as e:
-        logging.warning(f"Error checking chat {chat_id}: {e}")
-        # When in doubt, try to send (better to attempt than skip)
-        return True
-
-# Broadcast command with enhanced features
+# Enhanced broadcast command for DMs and log group only
 @app.on_message(filters.command(["broadcast", "gcast"]) & filters.user(list(AUTHORIZED_IDS)))
 async def broadcast_message(client: Client, message):
-    """Enhanced broadcast command with better error handling and private group support"""
-    
+    """Broadcast command for DMs and log group only"""
+
     # Validate input
     if not message.reply_to_message and len(message.text.split()) < 2:
         return await message.reply_text(
@@ -110,18 +50,20 @@ async def broadcast_message(client: Client, message):
             "• Reply to a message to broadcast it\n"
             "• Or use: `/broadcast your message here`\n"
             "• For users only: `/broadcast -users your message`\n"
-            "• For chats only: `/broadcast -chats your message`"
+            "• For log group: `/broadcast -log your message`"
         )
 
     # Parse command arguments
     command_parts = message.text.split()
-    broadcast_type = "all"  # all, users, chats
-    
+    broadcast_type = "users"  # Default to users only
+
     if len(command_parts) > 1 and command_parts[1].startswith("-"):
         if command_parts[1] == "-users":
             broadcast_type = "users"
-        elif command_parts[1] == "-chats":
-            broadcast_type = "chats"
+        elif command_parts[1] == "-log":
+            broadcast_type = "log"
+        else:
+            broadcast_type = "users"  # Default fallback
 
     # Determine what to broadcast
     target_message = None
@@ -136,11 +78,6 @@ async def broadcast_message(client: Client, message):
             caption_override = text_parts[1]
         elif len(text_parts) > 2 and text_parts[1].startswith('-'):
             caption_override = text_parts[2] if len(command_parts) > 2 else None
-    elif message.media:
-        target_message = message
-        if message.caption:
-            caption_parts = message.caption.split(' ', 1)
-            caption_override = caption_parts[1] if len(caption_parts) > 1 else ""
     else:
         # Text broadcast
         text_parts = message.text.split(' ', 1)
@@ -149,7 +86,7 @@ async def broadcast_message(client: Client, message):
                 broadcast_text = ' '.join(command_parts[2:])
             elif not text_parts[1].startswith('-'):
                 broadcast_text = text_parts[1]
-        
+
         if not broadcast_text:
             return await message.reply_text("❌ Please provide text to broadcast!")
 
@@ -158,18 +95,10 @@ async def broadcast_message(client: Client, message):
 
     # Get broadcast targets
     broadcast_ids = []
-    
+
     try:
-        if broadcast_type in ["all", "chats"]:
-            all_chats = await get_served_chats()
-            for chat in all_chats or []:
-                try:
-                    cid = int(chat["chat_id"]) if isinstance(chat, dict) else int(chat)
-                    broadcast_ids.append(cid)
-                except Exception:
-                    continue
-        
-        if broadcast_type in ["all", "users"]:
+        if broadcast_type == "users":
+            # Get all users for DM broadcast
             all_users = await get_served_users()
             for user in all_users or []:
                 try:
@@ -177,23 +106,25 @@ async def broadcast_message(client: Client, message):
                     broadcast_ids.append(uid)
                 except Exception:
                     continue
+        elif broadcast_type == "log":
+            # Only send to log group
+            try:
+                if LOGGER_ID:
+                    broadcast_ids.append(int(LOGGER_ID))
+            except Exception:
+                pass
     except Exception as e:
         await status_msg.edit_text(f"❌ **Error gathering targets:** {str(e)}")
         return
 
-    # Remove duplicates and ensure all IDs are integers
-    broadcast_ids = list(set(x for x in broadcast_ids if isinstance(x, int)))
-    
+    # Remove duplicates
+    broadcast_ids = list(set(broadcast_ids))
+
     if not broadcast_ids:
         await status_msg.edit_text("❌ **No targets found for broadcast!**")
         return
 
     await status_msg.edit_text(f"📊 **Found {len(broadcast_ids)} targets**\n🚀 Starting broadcast...")
-
-    # Skip pre-validation for better success rate with private groups
-    # Let the actual send attempt determine what works
-    valid_targets = broadcast_ids
-    invalid_count = 0
 
     # Broadcast statistics
     success_count = 0
@@ -201,14 +132,13 @@ async def broadcast_message(client: Client, message):
     flood_wait_count = 0
     blocked_count = 0
     deleted_count = 0
-    forbidden_count = 0
     start_time = time.time()
-    
-    # Progress tracking
-    total_targets = len(valid_targets)
-    update_interval = max(5, total_targets // 20)  # Update every 5% or minimum 5
 
-    for i, chat_id in enumerate(valid_targets):
+    # Progress tracking
+    total_targets = len(broadcast_ids)
+    update_interval = max(5, total_targets // 20)
+
+    for i, chat_id in enumerate(broadcast_ids):
         try:
             # Send the message
             if target_message:
@@ -237,23 +167,23 @@ async def broadcast_message(client: Client, message):
                     await target_message.copy(chat_id, caption=caption_override)
             else:
                 await client.send_message(chat_id, broadcast_text)
-            
+
             success_count += 1
-            
+
             # Random delay to avoid flood
-            await asyncio.sleep(random.uniform(0.05, 0.2))
-            
+            await asyncio.sleep(random.uniform(0.05, 0.15))
+
         except FloodWait as e:
             flood_wait_count += 1
             wait_time = int(getattr(e, "value", getattr(e, "x", 0)) or 3)
-            
+
             # For long waits, skip and continue
-            if wait_time > 20:
+            if wait_time > 15:
                 fail_count += 1
                 continue
-                
+
             await asyncio.sleep(wait_time + random.randint(1, 2))
-            
+
             # Retry after flood wait
             try:
                 if target_message:
@@ -263,64 +193,34 @@ async def broadcast_message(client: Client, message):
                 success_count += 1
             except Exception:
                 fail_count += 1
-                
+
         except (UserIsBlocked, UserDeactivated):
             blocked_count += 1
             fail_count += 1
-            
+
         except (InputUserDeactivated, PeerIdInvalid):
             deleted_count += 1
             fail_count += 1
-            
-        except (ChatWriteForbidden, ChatAdminRequired):
-            forbidden_count += 1
-            fail_count += 1
-            
-        except (ChannelPrivate, ChatInvalid, ChannelInvalid, PeerIdInvalid):
-            # Chat doesn't exist or bot doesn't have access
-            deleted_count += 1
-            fail_count += 1
-            # Remove from database
-            from TeamXmusic.utils.database import chatsdb, usersdb
+            # Clean up invalid users
+            from TeamXmusic.utils.database import usersdb
             try:
-                if chat_id < 0:  # It's a chat/channel
-                    await chatsdb.delete_one({"chat_id": chat_id})
-                else:  # It's a user
-                    await usersdb.delete_one({"user_id": chat_id})
+                await usersdb.delete_one({"user_id": chat_id})
             except Exception:
                 pass
-            
-        except RPCError as e:
-            error_msg = str(e).lower()
-            if any(err in error_msg for err in ["channel_invalid", "chat_invalid", "peer_id_invalid", "chat_write_forbidden"]):
-                # Channel/chat doesn't exist anymore or no permissions
-                from TeamXmusic.utils.database import chatsdb, usersdb
-                try:
-                    if chat_id < 0:  # It's a chat/channel
-                        await chatsdb.delete_one({"chat_id": chat_id})
-                    else:  # It's a user
-                        await usersdb.delete_one({"user_id": chat_id})
-                except Exception:
-                    pass
-                if "write_forbidden" in error_msg:
-                    forbidden_count += 1
-                else:
-                    deleted_count += 1
-            else:
-                # Other RPC errors, just log and continue
-                logging.error(f"RPC Error for {chat_id}: {e}")
-            fail_count += 1
-            
+
         except Exception as e:
             fail_count += 1
             error_msg = str(e).lower()
-            # Log the error for debugging
-            logging.error(f"Unexpected error for {chat_id}: {e}")
-            
-            # If it's a permission-related error, count as forbidden
-            if any(word in error_msg for word in ["forbidden", "permission", "admin", "restricted"]):
-                forbidden_count += 1
-        
+            logging.error(f"Error sending to {chat_id}: {e}")
+
+            # Clean up invalid entries
+            if any(word in error_msg for word in ["invalid", "not found", "peer_id"]):
+                from TeamXmusic.utils.database import usersdb
+                try:
+                    await usersdb.delete_one({"user_id": chat_id})
+                except Exception:
+                    pass
+
         # Update progress periodically
         if (i + 1) % update_interval == 0 or i == total_targets - 1:
             progress = ((i + 1) / total_targets) * 100
@@ -337,8 +237,8 @@ async def broadcast_message(client: Client, message):
     # Calculate broadcast duration
     end_time = time.time()
     duration = int(end_time - start_time)
-    
-    # Final summary with detailed statistics
+
+    # Final summary
     summary_text = (
         f"🎯 **Broadcast Completed!**\n\n"
         f"📊 **Statistics:**\n"
@@ -346,13 +246,11 @@ async def broadcast_message(client: Client, message):
         f"❌ Total failed: `{fail_count}`\n"
         f"🚫 Blocked/Deleted: `{blocked_count + deleted_count}`\n"
         f"⏳ Flood waits: `{flood_wait_count}`\n"
-        f"🔒 Forbidden: `{forbidden_count}`\n"
-        f"🎯 Valid targets: `{total_targets}`\n"
-        f"🚫 Invalid targets: `{invalid_count}`\n"
+        f"🎯 Total targets: `{total_targets}`\n"
         f"⏱ Duration: `{duration}s`\n"
         f"📈 Success rate: `{(success_count/total_targets*100):.1f}%`"
     )
-    
+
     try:
         await status_msg.edit_text(summary_text)
     except Exception:
@@ -361,160 +259,36 @@ async def broadcast_message(client: Client, message):
         except Exception:
             pass
 
-# Test broadcast command for debugging
-@app.on_message(filters.command("testcast") & filters.user(list(AUTHORIZED_IDS)))
-async def test_broadcast(client: Client, message):
-    """Test broadcast permissions for specific chat"""
-    
-    if len(message.command) < 2:
-        return await message.reply_text(
-            "**🧪 Test Broadcast Usage:**\n\n"
-            "`/testcast chat_id` - Test permissions for specific chat\n"
-            "`/testcast -all` - Test all served chats"
-        )
-    
-    if message.command[1] == "-all":
-        status_msg = await message.reply_text("🧪 Testing all served chats...")
-        
-        all_chats = await get_served_chats()
-        valid_chats = []
-        invalid_chats = []
-        
-        for chat in all_chats or []:
-            try:
-                chat_id = int(chat["chat_id"]) if isinstance(chat, dict) else int(chat)
-                if await can_send_message(client, chat_id):
-                    valid_chats.append(chat_id)
-                else:
-                    invalid_chats.append(chat_id)
-            except Exception:
-                invalid_chats.append(str(chat))
-        
-        result_text = (
-            f"🧪 **Test Results:**\n\n"
-            f"✅ Valid chats: `{len(valid_chats)}`\n"
-            f"❌ Invalid chats: `{len(invalid_chats)}`\n\n"
-            f"**Sample invalid chats:**\n"
-        )
-        
-        for i, chat_id in enumerate(invalid_chats[:5]):
-            result_text += f"• `{chat_id}`\n"
-        
-        if len(invalid_chats) > 5:
-            result_text += f"• ... and {len(invalid_chats) - 5} more"
-            
-        await status_msg.edit_text(result_text)
-    else:
-        try:
-            chat_id = int(message.command[1])
-            can_send = await can_send_message(client, chat_id)
-            
-            try:
-                chat_info = await client.get_chat(chat_id)
-                chat_type = chat_info.type.name
-                chat_title = getattr(chat_info, 'title', 'N/A')
-            except Exception:
-                chat_type = "Unknown"
-                chat_title = "Unknown"
-            
-            result_text = (
-                f"🧪 **Test Result for `{chat_id}`:**\n\n"
-                f"📋 **Chat Info:**\n"
-                f"• Type: `{chat_type}`\n"
-                f"• Title: `{chat_title}`\n"
-                f"• Can send: `{'✅ Yes' if can_send else '❌ No'}`"
-            )
-            
-            await message.reply_text(result_text)
-            
-        except ValueError:
-            await message.reply_text("❌ Invalid chat ID!")
-
-# Database cleanup command
-@app.on_message(filters.command("cleanup_db") & filters.user(list(AUTHORIZED_IDS)))
-async def cleanup_invalid_chats(client: Client, message):
-    """Clean up invalid chats/users from database"""
-    
-    status_msg = await message.reply_text("🧹 **Starting database cleanup...**")
-    
-    try:
-        from TeamXmusic.utils.database import get_served_chats, get_served_users, chatsdb, usersdb
-        
-        # Get all chats and users
-        all_chats = await get_served_chats()
-        all_users = await get_served_users()
-        
-        cleaned_chats = 0
-        cleaned_users = 0
-        total_checked = 0
-        
-        # Check chats
-        if all_chats:
-            for chat in all_chats:
-                total_checked += 1
-                try:
-                    chat_id = int(chat["chat_id"]) if isinstance(chat, dict) else int(chat)
-                    if not await can_send_message(client, chat_id):
-                        try:
-                            await chatsdb.delete_one({"chat_id": chat_id})
-                            cleaned_chats += 1
-                        except Exception:
-                            pass
-                except Exception:
-                    try:
-                        chat_id = int(chat["chat_id"]) if isinstance(chat, dict) else int(chat)
-                        await chatsdb.delete_one({"chat_id": chat_id})
-                        cleaned_chats += 1
-                    except Exception:
-                        pass
-                
-                # Update progress every 20 checks
-                if total_checked % 20 == 0:
-                    try:
-                        await status_msg.edit_text(
-                            f"🧹 **Cleaning database...**\n"
-                            f"📊 Checked: `{total_checked}`\n"
-                            f"🗑 Cleaned chats: `{cleaned_chats}`\n"
-                            f"🗑 Cleaned users: `{cleaned_users}`"
-                        )
-                    except Exception:
-                        pass
-        
-        cleanup_summary = (
-            f"🧹 **Database Cleanup Completed!**\n\n"
-            f"📊 **Results:**\n"
-            f"✅ Total checked: `{total_checked}`\n"
-            f"🗑 Invalid chats removed: `{cleaned_chats}`\n"
-            f"🗑 Invalid users removed: `{cleaned_users}`\n"
-            f"📈 Database is now cleaner!"
-        )
-        
-        await status_msg.edit_text(cleanup_summary)
-        
-    except Exception as e:
-        await status_msg.edit_text(f"❌ **Cleanup failed:** {str(e)}")
-
-# Broadcast to specific chat/user
+# Broadcast to specific user/log group
 @app.on_message(filters.command("bcast") & filters.user(list(AUTHORIZED_IDS)))
 async def broadcast_to_specific(client: Client, message):
-    """Broadcast to specific chat or user"""
-    
+    """Broadcast to specific user or log group"""
+
     if len(message.command) < 2:
         return await message.reply_text(
             "**📢 Specific Broadcast Usage:**\n\n"
-            "`/bcast chat_id your message`\n"
-            "or reply to a message with `/bcast chat_id`"
+            "`/bcast user_id your message` - Send to specific user\n"
+            "`/bcast -log your message` - Send to log group\n"
+            "or reply to a message with `/bcast user_id` or `/bcast -log`"
         )
-    
-    try:
-        target_id = int(message.command[1])
-    except ValueError:
-        return await message.reply_text("❌ Invalid chat/user ID!")
-    
-    # Check permissions first
-    if not await can_send_message(client, target_id):
-        return await message.reply_text(f"❌ Cannot send message to `{target_id}`. Bot may not have permissions or chat is invalid.")
-    
+
+    target_param = message.command[1]
+
+    if target_param == "-log":
+        try:
+            target_id = int(LOGGER_ID) if LOGGER_ID else None
+            if not target_id:
+                return await message.reply_text("❌ Log group ID not configured!")
+        except Exception:
+            return await message.reply_text("❌ Invalid log group configuration!")
+    else:
+        try:
+            target_id = int(target_param)
+            if target_id < 0:
+                return await message.reply_text("❌ Only user IDs and log group are allowed!")
+        except ValueError:
+            return await message.reply_text("❌ Invalid user ID!")
+
     if message.reply_to_message:
         target_message = message.reply_to_message
         try:
@@ -523,10 +297,11 @@ async def broadcast_to_specific(client: Client, message):
         except Exception as e:
             await message.reply_text(f"❌ Failed to send: {str(e)}")
     else:
-        if len(message.command) < 3:
+        start_idx = 3 if target_param == "-log" else 2
+        if len(message.command) < start_idx + 1:
             return await message.reply_text("❌ Please provide a message to send!")
-        
-        text = message.text.split(None, 2)[2]
+
+        text = message.text.split(None, start_idx)[start_idx]
         try:
             await client.send_message(target_id, text)
             await message.reply_text(f"✅ Message sent to `{target_id}`")
@@ -537,34 +312,89 @@ async def broadcast_to_specific(client: Client, message):
 @app.on_message(filters.command("bstats") & filters.user(list(AUTHORIZED_IDS)))
 async def broadcast_stats(client: Client, message):
     """Get broadcast target statistics"""
-    
+
     status_msg = await message.reply_text("📊 Gathering broadcast statistics...")
-    
+
     try:
-        chats = await get_served_chats()
         users = await get_served_users()
-        
-        chat_count = len(chats) if chats else 0
         user_count = len(users) if users else 0
-        total_count = chat_count + user_count
-        
+
+        log_status = "✅ Configured" if LOGGER_ID else "❌ Not configured"
+
         stats_text = (
             f"📊 **Broadcast Statistics**\n\n"
-            f"👥 **Groups/Channels:** `{chat_count}`\n"
-            f"👤 **Users:** `{user_count}`\n"
-            f"📈 **Total Targets:** `{total_count}`\n\n"
+            f"👤 **Users (DMs):** `{user_count}`\n"
+            f"📋 **Log Group:** `{log_status}`\n\n"
             f"🔧 **Available Commands:**\n"
-            f"• `/broadcast` - Broadcast to all\n"
-            f"• `/broadcast -users` - Users only\n"
-            f"• `/broadcast -chats` - Chats only\n"
-            f"• `/bcast chat_id` - Specific target\n"
-            f"• `/testcast chat_id` - Test permissions\n"
-            f"• `/testcast -all` - Test all chats\n"
-            f"• `/bstats` - Show statistics\n"
-            f"• `/cleanup_db` - Clean invalid chats"
+            f"• `/broadcast message` - Broadcast to all users\n"
+            f"• `/broadcast -users message` - Users only\n"
+            f"• `/broadcast -log message` - Log group only\n"
+            f"• `/bcast user_id message` - Specific user\n"
+            f"• `/bcast -log message` - Log group\n"
+            f"• `/bstats` - Show statistics\n\n"
+            f"**Note:** Groups are not supported to avoid permission issues."
         )
-        
+
         await status_msg.edit_text(stats_text)
-        
+
     except Exception as e:
         await status_msg.edit_text(f"❌ Error getting statistics: {str(e)}")
+
+# Clean up invalid users from database
+@app.on_message(filters.command("cleanup_users") & filters.user(list(AUTHORIZED_IDS)))
+async def cleanup_invalid_users(client: Client, message):
+    """Clean up invalid users from database"""
+
+    status_msg = await message.reply_text("🧹 **Starting user database cleanup...**")
+
+    try:
+        from TeamXmusic.utils.database import get_served_users, usersdb
+
+        all_users = await get_served_users()
+        cleaned_users = 0
+        total_checked = 0
+
+        if all_users:
+            for user in all_users:
+                total_checked += 1
+                try:
+                    user_id = int(user["user_id"]) if isinstance(user, dict) else int(user)
+                    # Try to get user info
+                    try:
+                        await client.get_users(user_id)
+                    except Exception:
+                        # User doesn't exist or bot can't access
+                        await usersdb.delete_one({"user_id": user_id})
+                        cleaned_users += 1
+                except Exception:
+                    # Invalid user entry
+                    try:
+                        user_id = int(user["user_id"]) if isinstance(user, dict) else int(user)
+                        await usersdb.delete_one({"user_id": user_id})
+                        cleaned_users += 1
+                    except Exception:
+                        pass
+
+                # Update progress every 50 checks
+                if total_checked % 50 == 0:
+                    try:
+                        await status_msg.edit_text(
+                            f"🧹 **Cleaning user database...**\n"
+                            f"📊 Checked: `{total_checked}`\n"
+                            f"🗑 Cleaned: `{cleaned_users}`"
+                        )
+                    except Exception:
+                        pass
+
+        cleanup_summary = (
+            f"🧹 **User Database Cleanup Completed!**\n\n"
+            f"📊 **Results:**\n"
+            f"✅ Total checked: `{total_checked}`\n"
+            f"🗑 Invalid users removed: `{cleaned_users}`\n"
+            f"📈 Database is now cleaner!"
+        )
+
+        await status_msg.edit_text(cleanup_summary)
+
+    except Exception as e:
+        await status_msg.edit_text(f"❌ **Cleanup failed:** {str(e)}")
