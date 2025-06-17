@@ -5,7 +5,7 @@ from pyrogram.enums import ChatMembersFilter
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 
 from TeamXmusic import app, LOGGER
-from TeamXmusic.utils.database import db
+from TeamXmusic.misc import dbb as db  # ✅ Fix here
 
 from TeamXmusic.misc import SUDOERS
 from TeamXmusic.utils.database import (
