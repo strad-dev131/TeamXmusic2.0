@@ -4,7 +4,7 @@ from pyrogram.types import Message
 from pyrogram.enums import ChatMembersFilter
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 
-from TeamXmusic import app, LOGGER
+from TeamXmusic import app, LOGGER, db
 from TeamXmusic.misc import SUDOERS
 from TeamXmusic.utils.database import (
     get_active_chats,
@@ -52,10 +52,19 @@ async def broadcast_message(client, message: Message, _):
         for i in chats:
             to += 1
             try:
-                # Validate chat before sending
-                await app.get_chat(i)
+                chat = await app.get_chat(i)
 
-                m = await app.forward_messages(i, y, x) if message.reply_to_message else await app.send_message(i, text=query)
+                # Skip non-group chats or where bot can't send messages
+                if chat.type not in ["supergroup", "group"]:
+                    continue
+                if hasattr(chat, 'permissions') and chat.permissions and not chat.permissions.can_send_messages:
+                    continue
+
+                m = (
+                    await app.forward_messages(i, y, x)
+                    if message.reply_to_message
+                    else await app.send_message(i, text=query)
+                )
 
                 if "-pin" in message.text:
                     try:
@@ -84,6 +93,8 @@ async def broadcast_message(client, message: Message, _):
             except (PeerIdInvalid, ChannelInvalid) as e:
                 LOGGER(__name__).info(f"Invalid chat skipped: {i} - {e}")
                 err += 1
+                # Auto-remove from MongoDB
+                await db.served_chats.delete_one({"chat_id": i})
                 continue
             except Exception as e:
                 LOGGER(__name__).info(f"Broadcast error in chat {i}: {e}")
@@ -105,7 +116,11 @@ async def broadcast_message(client, message: Message, _):
         for i in served_users:
             try:
                 await app.get_chat(i)
-                m = await app.forward_messages(i, y, x) if message.reply_to_message else await app.send_message(i, text=query)
+                m = (
+                    await app.forward_messages(i, y, x)
+                    if message.reply_to_message
+                    else await app.send_message(i, text=query)
+                )
                 susr += 1
                 await asyncio.sleep(0.2)
             except FloodWait as fw:
@@ -165,6 +180,5 @@ async def auto_clean():
                         adminlist[chat_id].append(user_id)
         except:
             continue
-
 
 asyncio.create_task(auto_clean())
