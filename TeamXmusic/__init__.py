@@ -6,15 +6,19 @@ from TeamXmusic.misc import dbb, heroku
 
 from .logging import LOGGER
 
+# Initialize directories and git
 dirr()
 git()
+
+# Initialize misc services
 dbb()
 heroku()
 
+# Core bot instances
 app = Siddu()
 userbot = Userbot()
 
-
+# Platforms import
 from .platforms import *
 
 Apple = AppleAPI()
@@ -24,3 +28,6 @@ Spotify = SpotifyAPI()
 Resso = RessoAPI()
 Telegram = TeleAPI()
 YouTube = YouTubeAPI()
+
+# ✅ Export db so other files can use:
+db = dbb
