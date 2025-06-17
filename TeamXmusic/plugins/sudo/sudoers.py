@@ -69,3 +69,14 @@ async def sudoers_list(client, message: Message, _):
         await message.reply_text(_["sudo_7"])
     else:
         await message.reply_text(text, reply_markup=close_markup(_))
+
+from pyrogram import filters
+from pyrogram.types import Message
+from TeamXmusic import app
+from TeamXmusic.utils.database import save_chat_to_db
+
+@app.on_message(filters.new_chat_members)
+async def when_bot_joins_group(client, message: Message):
+    # If the bot was just added to a group
+    if app.me.id in [u.id for u in message.new_chat_members]:
+        await save_chat_to_db(message.chat)
