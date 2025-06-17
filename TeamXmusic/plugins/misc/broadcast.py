@@ -150,6 +150,30 @@ async def broadcast_message(client: Client, message):
 
     for i, chat_id in enumerate(broadcast_ids):
         try:
+            # First validate if the chat/channel exists and is accessible
+            try:
+                chat_info = await client.get_chat(chat_id)
+                # If we can get chat info, proceed with sending
+            except Exception as check_error:
+                error_msg = str(check_error).lower()
+                if "channel_invalid" in error_msg or "chat_invalid" in error_msg:
+                    # Remove invalid chat from database
+                    from TeamXmusic.utils.database import chatsdb, usersdb
+                    try:
+                        if chat_id < 0:  # It's a chat/channel
+                            await chatsdb.delete_one({"chat_id": chat_id})
+                        else:  # It's a user
+                            await usersdb.delete_one({"user_id": chat_id})
+                    except Exception:
+                        pass
+                    deleted_count += 1
+                    fail_count += 1
+                    continue
+                else:
+                    # Other error, skip this chat
+                    fail_count += 1
+                    continue
+            
             # Send the message
             if target_message:
                 if target_message.text:
@@ -217,6 +241,18 @@ async def broadcast_message(client: Client, message):
             fail_count += 1
             
         except RPCError as e:
+            error_msg = str(e).lower()
+            if "channel_invalid" in error_msg or "chat_invalid" in error_msg:
+                # Channel/chat doesn't exist anymore, remove from database
+                from TeamXmusic.utils.database import chatsdb, usersdb
+                try:
+                    if chat_id < 0:  # It's a chat/channel
+                        await chatsdb.delete_one({"chat_id": chat_id})
+                    else:  # It's a user
+                        await usersdb.delete_one({"user_id": chat_id})
+                except Exception:
+                    pass
+                deleted_count += 1
             fail_count += 1
             logging.error(f"RPC Error for {chat_id}: {e}")
             
@@ -262,6 +298,86 @@ async def broadcast_message(client: Client, message):
             await message.reply_text(summary_text)
         except Exception:
             pass
+
+# Database cleanup command
+@app.on_message(filters.command("cleanup_db") & filters.user(list(AUTHORIZED_IDS)))
+async def cleanup_invalid_chats(client: Client, message):
+    """Clean up invalid chats/users from database"""
+    
+    status_msg = await message.reply_text("🧹 **Starting database cleanup...**")
+    
+    try:
+        from TeamXmusic.utils.database import get_served_chats, get_served_users, chatsdb, usersdb
+        
+        # Get all chats and users
+        all_chats = await get_served_chats()
+        all_users = await get_served_users()
+        
+        cleaned_chats = 0
+        cleaned_users = 0
+        total_checked = 0
+        
+        # Check chats
+        if all_chats:
+            for chat in all_chats:
+                total_checked += 1
+                try:
+                    chat_id = int(chat["chat_id"]) if isinstance(chat, dict) else int(chat)
+                    await client.get_chat(chat_id)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "channel_invalid" in error_msg or "chat_invalid" in error_msg:
+                        try:
+                            await chatsdb.delete_one({"chat_id": chat_id})
+                            cleaned_chats += 1
+                        except Exception:
+                            pass
+                
+                # Update progress every 50 checks
+                if total_checked % 50 == 0:
+                    try:
+                        await status_msg.edit_text(
+                            f"🧹 **Cleaning database...**\n"
+                            f"📊 Checked: `{total_checked}`\n"
+                            f"🗑 Cleaned chats: `{cleaned_chats}`\n"
+                            f"🗑 Cleaned users: `{cleaned_users}`"
+                        )
+                    except Exception:
+                        pass
+        
+        # Check users (limit to avoid flood)
+        if all_users:
+            user_count = 0
+            for user in all_users:
+                if user_count >= 100:  # Limit user checks to avoid flood
+                    break
+                user_count += 1
+                total_checked += 1
+                try:
+                    user_id = int(user["user_id"]) if isinstance(user, dict) else int(user)
+                    await client.get_chat(user_id)
+                except Exception as e:
+                    error_msg = str(e).lower()
+                    if "user_invalid" in error_msg or "peer_id_invalid" in error_msg:
+                        try:
+                            await usersdb.delete_one({"user_id": user_id})
+                            cleaned_users += 1
+                        except Exception:
+                            pass
+        
+        cleanup_summary = (
+            f"🧹 **Database Cleanup Completed!**\n\n"
+            f"📊 **Results:**\n"
+            f"✅ Total checked: `{total_checked}`\n"
+            f"🗑 Invalid chats removed: `{cleaned_chats}`\n"
+            f"🗑 Invalid users removed: `{cleaned_users}`\n"
+            f"📈 Database is now cleaner!"
+        )
+        
+        await status_msg.edit_text(cleanup_summary)
+        
+    except Exception as e:
+        await status_msg.edit_text(f"❌ **Cleanup failed:** {str(e)}")
 
 # Broadcast to specific chat/user
 @app.on_message(filters.command("bcast") & filters.user(list(AUTHORIZED_IDS)))
@@ -323,7 +439,8 @@ async def broadcast_stats(client: Client, message):
             f"• `/broadcast -users` - Users only\n"
             f"• `/broadcast -chats` - Chats only\n"
             f"• `/bcast chat_id` - Specific target\n"
-            f"• `/bstats` - Show statistics"
+            f"• `/bstats` - Show statistics\n"
+            f"• `/cleanup_db` - Clean invalid chats"
         )
         
         await status_msg.edit_text(stats_text)
