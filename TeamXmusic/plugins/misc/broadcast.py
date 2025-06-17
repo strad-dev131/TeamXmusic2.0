@@ -10,7 +10,7 @@ try:
 except ImportError:
     userbot = None
 
-from TeamXmusic.utils.database import get_served_chats, get_served_users, remove_served_chat, remove_served_user
+from TeamXmusic.utils.database import get_served_chats, get_served_users
 
 # Load authorized broadcast sender IDs (owner/sudo) from config or environment
 AUTHORIZED_IDS = set()
