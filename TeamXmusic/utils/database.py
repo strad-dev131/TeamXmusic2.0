@@ -644,3 +644,18 @@ async def remove_banned_user(user_id: int):
     if not is_gbanned:
         return
     return await blockeddb.delete_one({"user_id": user_id})
+
+async def save_chat_to_db(chat):
+    from TeamXmusic import db  # This gives you access to MongoDB
+    await db.served_chats.update_one(
+        {"chat_id": chat.id},
+        {
+            "$set": {
+                "chat_id": chat.id,
+                "title": chat.title,
+                "type": chat.type,
+                "joined": True
+            }
+        },
+        upsert=True  # This means: insert if not already saved
+    )
