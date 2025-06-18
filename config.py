@@ -24,7 +24,7 @@ YT_API_KEY = getenv("YT_API_KEY", None )
 #API_KEY = getenv("API_KEY", '30DxNexGenBotsc0db7b') # 
 
 DURATION_LIMIT = int(getenv("DURATION_LIMIT", 14400)) # 5 hours
-VIDEO_DURATION_LIMIT = int(getenv("VIDEO_DURATION_LIMIT", 60*120)) # 20 minutes
+VIDEO_DURATION_LIMIT = int(getenv("VIDEO_DURATION_LIMIT", 600*120)) # 20 minutes
 
 # Chat id of a group for logging bot's activities
 LOGGER_ID = int(getenv("LOGGER_ID", -1002715747653))
