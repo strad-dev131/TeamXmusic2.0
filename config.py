@@ -104,9 +104,9 @@ TELEGRAM_VIDEO_URL = "https://telegra.ph/file/492a3bb2e880d19750b79.jpg"
 STREAM_IMG_URL = "https://graph.org/file/ff2af8d4d10afa1baf49e.jpg"
 SOUNCLOUD_IMG_URL = "https://graph.org/file/c95a687e777b55be1c792.jpg"
 YOUTUBE_IMG_URL = "https://graph.org/file/e8730fdece86a1166f608.jpg"
-SPOTIFY_ARTIST_IMG_URL = "https://graph.org/file/0bb6f36796d496b4254ff.jpg"
-SPOTIFY_ALBUM_IMG_URL = "https://graph.org/file/0bb6f36796d496b4254ff.jpg"
-SPOTIFY_PLAYLIST_IMG_URL = "https://graph.org/file/0bb6f36796d496b4254ff.jpg"
+SPOTIFY_ARTIST_IMG_URL = "https://strad-dev131.github.io/TeamXsrc/img/sp_artist.jpg"
+SPOTIFY_ALBUM_IMG_URL = "https://strad-dev131.github.io/TeamXsrc/img/sp_album.jpg"
+SPOTIFY_PLAYLIST_IMG_URL = "https://strad-dev131.github.io/TeamXsrc/img/sp_playlist.jpg"
 
 if SUPPORT_CHANNEL:
     if not re.match("(?:http|https)://", SUPPORT_CHANNEL):
