@@ -73,6 +73,12 @@ TG_VIDEO_FILESIZE_LIMIT = int(getenv("TG_VIDEO_FILESIZE_LIMIT", 2097152099999))
 
 PRIVATE_BOT_MODE_MEM = int(getenv("PRIVATE_BOT_MODE_MEM", 5))
 
+# Broadcast system temp values
+CACHE_DURATION = 3600  # 1 hour in seconds
+CACHE_SLEEP = 600      # check every 10 mins
+file_cache = {}
+autoclean = []
+
 
 # Get your pyrogram v2 session from @StringFatherBot on Telegram
 STRING1 = getenv("STRING_SESSION", None)
