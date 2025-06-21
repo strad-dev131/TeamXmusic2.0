@@ -5,7 +5,7 @@ from pyrogram.enums import ChatMembersFilter
 from pyrogram.errors import FloodWait, PeerIdInvalid, ChannelInvalid
 
 from TeamXmusic import app, LOGGER
-from TeamXmusic.misc import dbb as db  # ✅ Fix here
+from TeamXmusic.core.mongo import mongodb as db  # ✅ Corrected MongoDB import
 
 from TeamXmusic.misc import SUDOERS
 from TeamXmusic.utils.database import (
@@ -42,13 +42,7 @@ async def broadcast_message(client, message: Message, _):
     await message.reply_text(_["broad_1"])
 
     if "-nobot" not in message.text:
-        sent = 0
-        pin = 0
-        err = 0
-        floodWaitError = 0
-        floodwaitskipped = 0
-        floodWaitsleep = 0
-        to = 0
+        sent = pin = err = floodWaitError = floodwaitskipped = floodWaitsleep = to = 0
 
         chats = [int(chat["chat_id"]) for chat in await get_served_chats()]
         for i in chats:
@@ -56,7 +50,6 @@ async def broadcast_message(client, message: Message, _):
             try:
                 chat = await app.get_chat(i)
 
-                # Skip non-group chats or where bot can't send messages
                 if chat.type not in ["supergroup", "group"]:
                     continue
                 if hasattr(chat, 'permissions') and chat.permissions and not chat.permissions.can_send_messages:
@@ -72,13 +65,13 @@ async def broadcast_message(client, message: Message, _):
                     try:
                         await m.pin(disable_notification=True)
                         pin += 1
-                    except Exception:
+                    except:
                         continue
                 elif "-pinloud" in message.text:
                     try:
                         await m.pin(disable_notification=False)
                         pin += 1
-                    except Exception:
+                    except:
                         continue
 
                 sent += 1
@@ -95,7 +88,6 @@ async def broadcast_message(client, message: Message, _):
             except (PeerIdInvalid, ChannelInvalid) as e:
                 LOGGER(__name__).info(f"Invalid chat skipped: {i} - {e}")
                 err += 1
-                # Auto-remove from MongoDB
                 await db.served_chats.delete_one({"chat_id": i})
                 continue
             except Exception as e:
@@ -166,6 +158,19 @@ async def broadcast_message(client, message: Message, _):
     IS_BROADCASTING = False
 
 
+async def startup_clean():
+    try:
+        served_chats = await get_active_chats()
+        for gid in served_chats:
+            try:
+                await app.get_chat(gid)
+            except Exception as e:
+                LOGGER(__name__).info(f"Startup auto-clean [GROUP]: {gid} - {e}")
+                await db.served_chats.delete_one({"chat_id": gid})
+    except Exception as e:
+        LOGGER(__name__).error(f"Startup cleaner failed: {e}")
+
+
 async def auto_clean():
     while not await asyncio.sleep(10):
         try:
@@ -184,3 +189,4 @@ async def auto_clean():
             continue
 
 asyncio.create_task(auto_clean())
+asyncio.create_task(startup_clean())
